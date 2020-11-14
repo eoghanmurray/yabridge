@@ -41,6 +41,30 @@
  */
 extern "C" VST_EXPORT AEffect* VSTPluginMain(
     audioMasterCallback host_callback) {
+    // HACK: Workaround for a bug in Bitwig Studio 3.3 beta 4. `environ` is a
+    //       null pointer in beta 4, which breaks Boost.Process and any other
+    //       environment access through `environ`. To work around this for this
+    //       beta, we'll just overwrite `environ` with the contents of
+    //       `/proc/self/environ`.
+    //
+    //       This should **not** be committed to the master branch.
+    if (!environ) {
+        auto* reconstructed_environment = new std::vector<char*>{};
+
+        std::ifstream environ_file("/proc/self/environ", std::ifstream::in);
+        for (std::string variable;
+             std::getline(environ_file, variable, '\0');) {
+            // Memory leaks galore!
+            reconstructed_environment->push_back(
+                const_cast<char*>((new std::string(variable))->c_str()));
+        }
+
+        // `environ` should end with a trailing null pointer
+        reconstructed_environment->push_back(nullptr);
+        environ = reconstructed_environment->data();
+        __environ = reconstructed_environment->data();
+    }
+
     try {
         // This is the only place where we have to use manual memory management.
         // The bridge's destructor is called when the `effClose` opcode is
